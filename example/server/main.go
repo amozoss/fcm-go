@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/amozoss/go-fcm"
+	"github.com/amozoss/fcm-go"
 	"github.com/spacemonkeygo/flagfile"
 	"github.com/spacemonkeygo/spacelog"
 	"github.com/spacemonkeygo/spacelog/setup"
