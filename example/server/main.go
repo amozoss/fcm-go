@@ -2,10 +2,9 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
-	"pushie"
-	"time"
 
 	"github.com/spacemonkeygo/flagfile"
 	"github.com/spacemonkeygo/spacelog"
@@ -19,9 +18,6 @@ const (
 )
 
 var (
-	endpoint = "https://fcm.googleapis.com/fcm/send"
-
-	dbPath    = flag.String("db_path", "./store.sqlite3", "path for the database")
 	address   = flag.String("address", ":3322", "address for server")
 	fcmApiKey = flag.String("fcm_api_key", "", "fcm api key")
 	logger    = spacelog.GetLogger()
@@ -32,15 +28,34 @@ func main() {
 	flagfile.Load(config)
 	setup.MustSetup(os.Args[0])
 
-	store, err := pushie.NewStore(*dbPath)
-	if err != nil {
-		logger.Errorf("Error creating store: %v", err)
-	}
-
-	fcmClient := fcm.NewFcmClient(endpoint, *fcmApiKey, &http.Client{}, store,
-		1*time.Second, 10*time.Second, 5)
-
+	fcmClient := fcm.NewFcmClient(*fcmApiKey, http.DefaultClient, store, nil)
 	server := pushie.NewServer(fcmClient, store)
 	logger.Noticef("Server started listening on %s", *address)
 	logger.Error(http.ListenAndServe(*address, server))
+}
+
+type MemStore struct {
+	regIds map[string]bool
+}
+
+func NewMemStore() *MemStore {
+	return &MemStore{
+		regIds: make(map[string]bool),
+	}
+}
+
+func (m *MemStore) Update(oldRegId, newRegId string) error {
+	if _, ok := m.regIds[oldRegId]; ok {
+		m.regIds[oldRegId] = newRegId
+		return nil
+	}
+	return fmt.Errorf("Update error: Could not find RegID: %s ", oldRegId)
+}
+
+func (m *MemStore) Delete(regId string) error {
+	if _, ok := m.regIds[oldRegId]; ok {
+		delete(m.regIds, oldRegId)
+	}
+
+	return fmt.Errorf("Delete error: Could not find RegID: %s ", regId)
 }

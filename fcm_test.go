@@ -39,17 +39,22 @@ func TestSendHttpRetry(t *testing.T) {
 			{ "error": "Unavailable" }
 		]
 	}`
+	// 5s
 	resp1 := NewResponse(200, unavailableMsg)
 	resp1.Header.Set("Retry-After", "5")
 	test.AddResponse(resp1)
 
+	// 2s
 	resp2 := NewResponse(200, unavailableMsg)
 	test.AddResponse(resp2)
 
+	// 4s
 	resp3 := NewResponse(200, unavailableMsg)
 	test.AddResponse(resp3)
 
+	// 15s
 	resp4 := NewResponse(200, unavailableMsg)
+	resp4.Header.Set("Retry-After", "15")
 	test.AddResponse(resp4)
 
 	successMsg := `{ "multicast_id": 108,
@@ -66,7 +71,7 @@ func TestSendHttpRetry(t *testing.T) {
 	err := test.fcmClient.SendHttp(httpMsg)
 	test.AssertNoError(err)
 
-	test.AssertEqual(19*time.Second, totalSleep)
+	test.AssertEqual(26*time.Second, totalSleep)
 }
 
 func TestProcessRespSuccess(t *testing.T) {
@@ -169,7 +174,7 @@ func TestParseRetryAfter(t *testing.T) {
 	date := "Fri, 31 Dec 1999 23:59:59 GMT"
 	dur, err := parseRetryAfter(date)
 	test.AssertNoError(err)
-	test.AssertEqual(dur, 59*time.Second)
+	test.AssertEqual(*dur, 59*time.Second)
 
 	// Should handle past dates
 	nowHook = func() time.Time {
@@ -178,19 +183,19 @@ func TestParseRetryAfter(t *testing.T) {
 	date = "Fri, 31 Dec 1999 23:59:59 GMT"
 	dur, err = parseRetryAfter(date)
 	test.AssertNoError(err)
-	test.AssertEqual(dur, 0*time.Second)
+	test.AssertNil(dur)
 
 	// Should parse numbers
 	dur_str := "5"
 	dur, err = parseRetryAfter(dur_str)
 	test.AssertNoError(err)
-	test.AssertEqual(dur, 5*time.Second)
+	test.AssertEqual(*dur, 5*time.Second)
 
 	// Should handle invalid content
 	dur_str = "5 blab"
 	dur, err = parseRetryAfter(dur_str)
 	test.AssertNoError(err)
-	test.AssertEqual(dur, 0*time.Second)
+	test.AssertNil(dur)
 }
 
 //////////////////////////////////////////////////////////////
@@ -221,12 +226,11 @@ func (t *TestFcmClient) AddResponse(resp *http.Response) {
 
 func NewTestFcmClient(t *testing.T) *TestFcmClient {
 	test := &TestFcmClient{
-		Test:      atest.Wrap(t, 2),
+		Test:      atest.Wrap(t, 1),
 		regIds:    make(map[string]bool),
 		responses: make([]*http.Response, 0),
 	}
-	fc := NewFcmClient("http://hi.com", "api_key", test, test, 1*time.Second,
-		10*time.Second, 5)
+	fc := NewFcmClient("api_key", test, test, nil)
 	test.fcmClient = fc
 	return test
 }

@@ -12,6 +12,13 @@ import (
 	"github.com/spacemonkeygo/spacelog"
 )
 
+const (
+	endpoint                = "https://fcm.googleapis.com/fcm/send"
+	defaultMinBackoff       = 1 * time.Second
+	defaultMaxBackoff       = 10 * time.Second
+	defaultMaxRetryAttempts = 5
+)
+
 var (
 	nowHook   = time.Now   // for testing
 	sleepHook = time.Sleep // for testing
@@ -28,38 +35,54 @@ type HttpClient interface {
 }
 
 type Store interface {
+	// Called when a registration token should be updated
 	Update(oldRegId, newRegId string) error
+	// Called when a registration token should be removed because the application
+	// was removed from the device, or an unrecoverable error occurred
 	Delete(regId string) error
 }
 
 type Client struct {
-	endpoint         string
-	apiKey           string
-	client           HttpClient
-	minBackoff       time.Duration
-	maxBackoff       time.Duration
-	maxRetryAttempts int
-	store            Store
+	apiKey  string
+	client  HttpClient
+	store   Store
+	options *ClientOptions
 }
 
-// TODO make options
-func NewFcmClient(endpoint, apiKey string, client HttpClient, store Store,
-	minBackoff, maxBackoff time.Duration, retryAttempts int) *Client {
+type ClientOptions struct {
+	MinBackoff       time.Duration
+	MaxBackoff       time.Duration
+	MaxRetryAttempts int
+}
+
+func DefaultClientOptions() *ClientOptions {
+	return &ClientOptions{
+		MinBackoff:       defaultMinBackoff,
+		MaxBackoff:       defaultMaxBackoff,
+		MaxRetryAttempts: defaultMaxRetryAttempts,
+	}
+}
+
+// When options == nil, default values are used
+func NewFcmClient(apiKey string, client HttpClient, store Store,
+	options *ClientOptions) *Client {
+	if options == nil {
+		options = DefaultClientOptions()
+	}
+
 	return &Client{
-		endpoint:         endpoint,
-		apiKey:           apiKey,
-		client:           client,
-		store:            store,
-		maxRetryAttempts: retryAttempts,
-		minBackoff:       minBackoff,
-		maxBackoff:       maxBackoff,
+		apiKey:  apiKey,
+		client:  client,
+		store:   store,
+		options: options,
 	}
 }
 
 type response struct {
 	httpResp   *HttpResponse
 	statusCode int
-	retryAfter time.Duration
+	// nil when no retryAfter is set
+	retryAfter *time.Duration
 }
 
 func NewHttpMessage(registrationIds []string, data Data, notif *Notification) *HttpMessage {
@@ -74,10 +97,10 @@ func NewHttpMessage(registrationIds []string, data Data, notif *Notification) *H
 func (c *Client) SendHttp(m HttpMessage) error {
 	registrationIds := m.RegistrationIds
 
-	currentAttempts := 1
-	currentBackoff := c.minBackoff
+	// Backoff to use when there is no retryAfter header
+	currentBackoff := c.options.MinBackoff
 Loop:
-	for currentAttempts <= c.maxRetryAttempts {
+	for attempts := 1; ; {
 		resp, err := c.send(&m)
 		if err != nil {
 			return Error.Wrap(fmt.Errorf("error sending request to FCM HTTP server: %v", err))
@@ -90,47 +113,52 @@ Loop:
 		case http.StatusUnauthorized:
 			return fmt.Errorf("Unauthorized")
 		case http.StatusOK:
-			toRetry, err := c.processResp(registrationIds, resp)
+			toRetryRegIds, err := c.processResp(registrationIds, resp)
 			if err != nil {
 				return err
 			}
-			if toRetry != nil {
-				m.RegistrationIds = toRetry
+			if toRetryRegIds != nil {
+				m.RegistrationIds = toRetryRegIds
 
-				dur, isUpdateBackoff := c.calcBackoff(resp.retryAfter, currentBackoff)
-				if isUpdateBackoff {
-					currentBackoff = dur
+				backoff := c.calcBackoff(resp.retryAfter, currentBackoff)
+				if resp.retryAfter == nil {
+					currentBackoff = backoff
 				}
 
-				logger.Noticef("RegistrationIds: %v (attempt %d of %d)", toRetry,
-					currentAttempts, c.maxRetryAttempts)
-				currentAttempts += 1
-				sleepHook(dur)
+				logger.Noticef("RegistrationIds: %v (attempt %d of %d)", toRetryRegIds,
+					attempts, c.options.MaxRetryAttempts)
+				attempts += 1
+				// TODO send in context with cancelation
+				sleepHook(backoff)
 				continue
 			} else {
 				break Loop
 			}
 		}
+		if attempts >= c.options.MaxRetryAttempts+1 {
+			return fmt.Errorf("Exhausted retry attempts")
+		}
 	}
 	return nil
 }
 
-// uses retryAfter if set and counts it as an attempt, others backs off max backoff
-func (c *Client) calcBackoff(retryAfter, currentBackoff time.Duration) (time.Duration, bool) {
-	if retryAfter != 0*time.Second {
-		if retryAfter < c.minBackoff {
-			return c.minBackoff, false
+// uses retryAfter if available, otherwise backs off to max backoff
+func (c *Client) calcBackoff(retryAfter *time.Duration,
+	currentBackoff time.Duration) (backoff time.Duration) {
+	if retryAfter != nil {
+		if *retryAfter < c.options.MinBackoff {
+			return c.options.MinBackoff
 		}
-		return retryAfter, false
+		return *retryAfter
 	}
-	// FIXME somehow use the first value
-	backoff := currentBackoff * 2
-	if backoff > c.maxBackoff {
-		return c.maxBackoff, true
-	} else if backoff < c.minBackoff {
-		return c.minBackoff, true
+	// TODO somehow use the first backoff value
+	backoff = currentBackoff * 2
+	if backoff > c.options.MaxBackoff {
+		return c.options.MaxBackoff
+	} else if backoff < c.options.MinBackoff {
+		return c.options.MinBackoff
 	}
-	return backoff, true
+	return backoff
 }
 
 func (c *Client) processResp(registrationIds []string, resp *response) (toRetry []string,
@@ -158,7 +186,7 @@ func (c *Client) processResp(registrationIds []string, resp *response) (toRetry 
 		if isRetry(result.Error) {
 			toRetry = append(toRetry, regId)
 		} else {
-			logger.Errorf("RegistrationId: %s error: %s", regId, result.Error)
+			logger.Noticef("RegistrationId: %s error: %s", regId, result.Error)
 			// Probably an unrecoverable error or NotRegistered
 			logger.Debugf("Deleting: %v", regId)
 			err = c.store.Delete(regId)
@@ -180,7 +208,7 @@ func (c *Client) send(message *HttpMessage) (*response, error) {
 	}
 	logger.Debugf("send json %s", data)
 
-	req, err := http.NewRequest("POST", c.endpoint, bytes.NewReader(data))
+	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(data))
 	if err != nil {
 		return nil, Error.Wrap(err)
 	}
@@ -224,17 +252,22 @@ func isRetry(err string) bool {
 // Two formats:
 // Retry-After: Fri, 31 Dec 1999 23:59:59 GMT
 // Retry-After: 120
-func parseRetryAfter(date string) (time.Duration, error) {
+func parseRetryAfter(date string) (*time.Duration, error) {
+	// No header set
+	if date == "" {
+		return nil, nil
+	}
+
 	d, err := time.ParseDuration(date + "s")
 	if err != nil {
 		t, err := http.ParseTime(date)
 		if t.Before(nowHook()) {
-			return 0, nil
+			return nil, nil
 		}
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		d = t.Sub(nowHook())
 	}
-	return d, nil
+	return &d, nil
 }
