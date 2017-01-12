@@ -11,7 +11,7 @@ import (
 	"dan/test/atest"
 )
 
-func TestSendHttpRetry(t *testing.T) {
+func TestSendRetry(t *testing.T) {
 	test := NewTestFcmClient(t)
 	httpMsg := HttpMessage{
 		RegistrationIds: []string{
@@ -68,7 +68,7 @@ func TestSendHttpRetry(t *testing.T) {
 	resp5 := NewResponse(200, successMsg)
 	test.AddResponse(resp5)
 
-	err := test.fcmClient.SendHttp(httpMsg)
+	err := test.fcmClient.Send(httpMsg)
 	test.AssertNoError(err)
 
 	test.AssertEqual(26*time.Second, totalSleep)

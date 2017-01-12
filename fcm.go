@@ -27,7 +27,7 @@ var (
 )
 
 type FcmClient interface {
-	SendHttp(m HttpMessage) error
+	Send(m HttpMessage) error
 }
 
 type HttpClient interface {
@@ -94,7 +94,7 @@ func NewHttpMessage(registrationIds []string, data Data, notif *Notification) *H
 }
 
 // Sends HttpMessages, retries with exponential backoff, processes replies to the Store
-func (c *Client) SendHttp(m HttpMessage) error {
+func (c *Client) Send(m HttpMessage) error {
 	registrationIds := m.RegistrationIds
 
 	// Backoff to use when there is no retryAfter header
