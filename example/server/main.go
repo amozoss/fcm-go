@@ -79,7 +79,6 @@ func (s *Server) simple(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 }
 
-// Send title and body as form data
 // curl localhost:8080/add -d "regId=12ab34"
 func (s *Server) add(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
