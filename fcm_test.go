@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"dan/test/atest"
+	"github.com/amozoss/atest"
 )
 
 func TestSendRetry(t *testing.T) {
