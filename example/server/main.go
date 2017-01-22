@@ -30,7 +30,7 @@ func main() {
 
 	store := NewMemStore()
 
-	fcmClient := fcm.NewFcmClient(*fcmApiKey, http.DefaultClient, store, nil)
+	fcmClient := fcm.NewDefaultClient(*fcmApiKey, store)
 	server := NewServer(fcmClient, store)
 	logger.Noticef("Server started listening on %s", *address)
 	logger.Error(http.ListenAndServe(*address, server))

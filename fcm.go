@@ -63,6 +63,10 @@ func DefaultClientOptions() *ClientOptions {
 	}
 }
 
+func NewDefaultClient(apiKey string, store Store) *Client {
+	return NewFcmClient(apiKey, http.DefaultClient, store, nil)
+}
+
 // When options == nil, default values are used
 func NewFcmClient(apiKey string, client HttpClient, store Store,
 	options *ClientOptions) *Client {
