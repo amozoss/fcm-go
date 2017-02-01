@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -66,7 +67,8 @@ func (s *Server) simple(w http.ResponseWriter, r *http.Request) {
 
 	title := r.PostFormValue("title")
 	body := r.PostFormValue("body")
-	if err := s.fcmClient.Send(fcm.HttpMessage{
+	ctx := context.TODO()
+	if err := s.fcmClient.Send(ctx, fcm.HttpMessage{
 		RegistrationIds: s.store.List(),
 		Notification: &fcm.Notification{
 			Title: title,
@@ -98,7 +100,8 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := s.fcmClient.Send(msg); err != nil {
+	ctx := context.TODO()
+	if err := s.fcmClient.Send(ctx, msg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -115,7 +118,7 @@ func NewMemStore() *MemStore {
 	}
 }
 
-func (m *MemStore) Update(oldRegId, newRegId string) error {
+func (m *MemStore) Update(ctx context.Context, oldRegId, newRegId string) error {
 	if _, ok := m.regIds[oldRegId]; ok {
 		delete(m.regIds, oldRegId)
 		m.regIds[newRegId] = true
@@ -124,7 +127,7 @@ func (m *MemStore) Update(oldRegId, newRegId string) error {
 	return fmt.Errorf("Update error: Could not find RegID: %s ", oldRegId)
 }
 
-func (m *MemStore) Delete(regId string) error {
+func (m *MemStore) Delete(ctx context.Context, regId string) error {
 	if _, ok := m.regIds[regId]; ok {
 		delete(m.regIds, regId)
 	}

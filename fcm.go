@@ -2,6 +2,7 @@ package fcm
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -27,7 +28,7 @@ var (
 )
 
 type FcmClient interface {
-	Send(m HttpMessage) error
+	Send(ctx context.Context, m HttpMessage) error
 }
 
 type HttpClient interface {
@@ -36,10 +37,10 @@ type HttpClient interface {
 
 type Store interface {
 	// Called when a registration token should be updated
-	Update(oldRegId, newRegId string) error
+	Update(ctx context.Context, oldRegId, newRegId string) error
 	// Called when a registration token should be removed because the application
 	// was removed from the device, or an unrecoverable error occurred
-	Delete(regId string) error
+	Delete(ctx context.Context, regId string) error
 }
 
 type Client struct {
@@ -98,7 +99,7 @@ func NewHttpMessage(registrationIds []string, data Data, notif *Notification) *H
 }
 
 // Sends HttpMessages, retries with exponential backoff, processes replies to the Store
-func (c *Client) Send(m HttpMessage) error {
+func (c *Client) Send(ctx context.Context, m HttpMessage) error {
 	registrationIds := m.RegistrationIds
 
 	// Backoff to use when there is no retryAfter header
@@ -117,7 +118,7 @@ Loop:
 		case http.StatusUnauthorized:
 			return fmt.Errorf("Unauthorized")
 		case http.StatusOK:
-			toRetryRegIds, err := c.processResp(registrationIds, resp)
+			toRetryRegIds, err := c.processResp(ctx, registrationIds, resp)
 			if err != nil {
 				return err
 			}
@@ -165,7 +166,8 @@ func (c *Client) calcBackoff(retryAfter *time.Duration,
 	return backoff
 }
 
-func (c *Client) processResp(registrationIds []string, resp *response) (toRetry []string,
+func (c *Client) processResp(ctx context.Context, registrationIds []string,
+	resp *response) (toRetry []string,
 	err error) {
 	httpResp := resp.httpResp
 	// All successful
@@ -179,7 +181,7 @@ func (c *Client) processResp(registrationIds []string, resp *response) (toRetry 
 		if result.MessageId != "" {
 			if result.RegistrationId != "" {
 				logger.Debugf("update: %s to %s", regId, result.RegistrationId)
-				err = c.store.Update(regId, result.RegistrationId)
+				err = c.store.Update(ctx, regId, result.RegistrationId)
 				if err != nil {
 					return nil, err
 				}
@@ -193,7 +195,7 @@ func (c *Client) processResp(registrationIds []string, resp *response) (toRetry 
 			logger.Noticef("RegistrationId: %s error: %s", regId, result.Error)
 			// Probably an unrecoverable error or NotRegistered
 			logger.Debugf("Deleting: %v", regId)
-			err = c.store.Delete(regId)
+			err = c.store.Delete(ctx, regId)
 			if err != nil {
 				return nil, err
 			}
