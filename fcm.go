@@ -175,6 +175,8 @@ func (c *Client) processResp(ctx context.Context, registrationIds []string,
 		return nil, nil
 	}
 
+	failureReasons := ""
+
 	for i, result := range httpResp.Results {
 		regId := registrationIds[i]
 		// Check for canonical ID
@@ -193,6 +195,7 @@ func (c *Client) processResp(ctx context.Context, registrationIds []string,
 			toRetry = append(toRetry, regId)
 		} else {
 			logger.Noticef("RegistrationId: %s error: %s", regId, result.Error)
+			failureReasons += fmt.Sprintf("%d: %s\n", i, result.Error)
 			// Probably an unrecoverable error or NotRegistered
 			logger.Debugf("Deleting: %v", regId)
 			err = c.store.Delete(ctx, regId)
@@ -200,6 +203,10 @@ func (c *Client) processResp(ctx context.Context, registrationIds []string,
 				return nil, err
 			}
 		}
+	}
+
+	if httpResp.Success == 0 {
+		return nil, fmt.Errorf("No notification sent successfully. Errors:\n" + failureReasons)
 	}
 
 	return toRetry, nil
