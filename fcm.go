@@ -99,28 +99,31 @@ func NewHttpMessage(registrationIds []string, data Data, notif *Notification) *H
 }
 
 // Sends HttpMessages, retries with exponential backoff, processes replies to the Store
-func (c *Client) Send(ctx context.Context, m HttpMessage) error {
+func (c *Client) Send(ctx context.Context, m HttpMessage) (hr *HttpResponse,
+	err error) {
 	registrationIds := m.RegistrationIds
 
+	var resp *response
 	// Backoff to use when there is no retryAfter header
 	currentBackoff := c.options.MinBackoff
 Loop:
 	for attempts := 1; ; {
-		resp, err := c.send(&m)
+		resp, err = c.send(&m)
 		if err != nil {
-			return Error.Wrap(fmt.Errorf("error sending request to FCM HTTP server: %v", err))
+			return nil, Error.Wrap(fmt.Errorf("error sending request to FCM HTTP"+
+				" server: %v", err))
 		}
 
 		// TODO also process 500's
 		switch resp.statusCode {
 		case http.StatusBadRequest:
-			return fmt.Errorf("Bad Request, invalid json")
+			return nil, fmt.Errorf("Bad Request, invalid json")
 		case http.StatusUnauthorized:
-			return fmt.Errorf("Unauthorized")
+			return nil, fmt.Errorf("Unauthorized")
 		case http.StatusOK:
 			toRetryRegIds, err := c.processResp(ctx, registrationIds, resp)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if toRetryRegIds != nil {
 				m.RegistrationIds = toRetryRegIds
@@ -141,10 +144,13 @@ Loop:
 			}
 		}
 		if attempts >= c.options.MaxRetryAttempts+1 {
-			return fmt.Errorf("Exhausted retry attempts")
+			return nil, fmt.Errorf("Exhausted retry attempts")
 		}
 	}
-	return nil
+	if resp == nil {
+		return nil, fmt.Errorf("No response")
+	}
+	return resp.httpResp, nil
 }
 
 // uses retryAfter if available, otherwise backs off to max backoff
@@ -205,9 +211,7 @@ func (c *Client) processResp(ctx context.Context, registrationIds []string,
 		}
 	}
 
-	if httpResp.Success == 0 {
-		return nil, fmt.Errorf("No notification sent successfully. Errors:\n" + failureReasons)
-	}
+	fmt.Println(httpResp)
 
 	return toRetry, nil
 }

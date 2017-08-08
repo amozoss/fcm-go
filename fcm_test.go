@@ -1,6 +1,7 @@
 package fcm
 
 import (
+	"context"
 	"io/ioutil"
 	"net/http"
 	"sort"
@@ -10,6 +11,14 @@ import (
 
 	"github.com/amozoss/atest"
 )
+
+var (
+	ctx = context.Background()
+)
+
+//func init() {
+//	spacelog.MustSetup("test", spacelog.SetupConfig{Level: "debug"})
+//}
 
 func TestSendRetry(t *testing.T) {
 	test := NewTestFcmClient(t)
@@ -68,8 +77,13 @@ func TestSendRetry(t *testing.T) {
 	resp5 := NewResponse(200, successMsg)
 	test.AddResponse(resp5)
 
-	err := test.fcmClient.Send(httpMsg)
+	httpResp, err := test.fcmClient.Send(ctx, httpMsg)
 	test.AssertNoError(err)
+	test.AssertEqual(uint(1), httpResp.Success)
+	test.AssertEqual(uint(0), httpResp.Failure)
+	test.AssertEqual(uint(0), httpResp.CanonicalIds)
+	test.AssertEqual(1, len(httpResp.Results))
+	test.AssertEqual("12", httpResp.Results[0].MessageId)
 
 	test.AssertEqual(26*time.Second, totalSleep)
 }
@@ -94,7 +108,7 @@ func TestProcessRespSuccess(t *testing.T) {
 		"a",
 	}
 
-	toRetry, err := test.fcmClient.processResp(regIds, resp)
+	toRetry, err := test.fcmClient.processResp(ctx, regIds, resp)
 	test.AssertNoError(err)
 	test.AssertEqual(len(toRetry), 0)
 }
@@ -141,7 +155,7 @@ func TestProcessRespMultipleResults(t *testing.T) {
 	}
 	test.AddRegIds(regIds)
 
-	toRetry, err := test.fcmClient.processResp(regIds, resp)
+	toRetry, err := test.fcmClient.processResp(ctx, regIds, resp)
 	test.AssertNoError(err)
 
 	expectedRetry := []string{
@@ -226,7 +240,7 @@ func (t *TestFcmClient) AddResponse(resp *http.Response) {
 
 func NewTestFcmClient(t *testing.T) *TestFcmClient {
 	test := &TestFcmClient{
-		Test:      atest.Wrap(t, 1),
+		Test:      atest.Wrap(t, 2),
 		regIds:    make(map[string]bool),
 		responses: make([]*http.Response, 0),
 	}
@@ -265,14 +279,15 @@ func (t *TestFcmClient) AddRegIds(regIds []string) {
 }
 
 // Mock Store
-func (t *TestFcmClient) Update(oldRegId, newRegId string) error {
+func (t *TestFcmClient) Update(ctx context.Context, oldRegId,
+	newRegId string) error {
 	delete(t.regIds, oldRegId)
 	t.regIds[newRegId] = true
 	return nil
 }
 
 // Mock Store
-func (t *TestFcmClient) Delete(regId string) error {
+func (t *TestFcmClient) Delete(ctx context.Context, regId string) error {
 	delete(t.regIds, regId)
 	return nil
 }
