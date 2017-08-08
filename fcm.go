@@ -175,6 +175,10 @@ func (c *Client) calcBackoff(retryAfter *time.Duration,
 func (c *Client) processResp(ctx context.Context, registrationIds []string,
 	resp *response) (toRetry []string,
 	err error) {
+	if resp.httpResp == nil {
+		return nil, fmt.Errorf("Cannot process. No Http response")
+	}
+
 	httpResp := resp.httpResp
 	// All successful
 	if httpResp.Failure == 0 && httpResp.CanonicalIds == 0 {
@@ -237,6 +241,19 @@ func (c *Client) send(message *HttpMessage) (*response, error) {
 	}
 	defer resp.Body.Close()
 
+	retryAfter, err := parseRetryAfter(resp.Header.Get("Retry-After"))
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return &response{
+			httpResp:   nil,
+			statusCode: resp.StatusCode,
+			retryAfter: retryAfter,
+		}, nil
+	}
+
 	httpResp := &HttpResponse{}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -244,11 +261,6 @@ func (c *Client) send(message *HttpMessage) (*response, error) {
 	}
 	logger.Debugf("response: %v", string(body))
 	err = json.Unmarshal(body, &httpResp)
-	if err != nil {
-		return nil, err
-	}
-
-	retryAfter, err := parseRetryAfter(resp.Header.Get("Retry-After"))
 	if err != nil {
 		return nil, err
 	}
