@@ -28,7 +28,7 @@ var (
 )
 
 type FcmClient interface {
-	Send(ctx context.Context, m HttpMessage) error
+	Send(ctx context.Context, m HttpMessage) (hr *HttpResponse, err error)
 }
 
 type HttpClient interface {
@@ -210,8 +210,6 @@ func (c *Client) processResp(ctx context.Context, registrationIds []string,
 			}
 		}
 	}
-
-	fmt.Println(httpResp)
 
 	return toRetry, nil
 }

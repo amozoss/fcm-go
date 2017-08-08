@@ -68,7 +68,7 @@ func (s *Server) simple(w http.ResponseWriter, r *http.Request) {
 	title := r.PostFormValue("title")
 	body := r.PostFormValue("body")
 	ctx := context.TODO()
-	if err := s.fcmClient.Send(ctx, fcm.HttpMessage{
+	if _, err := s.fcmClient.Send(ctx, fcm.HttpMessage{
 		RegistrationIds: s.store.List(),
 		Notification: &fcm.Notification{
 			Title: title,
@@ -101,7 +101,7 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := context.TODO()
-	if err := s.fcmClient.Send(ctx, msg); err != nil {
+	if _, err := s.fcmClient.Send(ctx, msg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
