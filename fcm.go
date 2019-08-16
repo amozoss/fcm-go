@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/spacemonkeygo/errors"
-	"github.com/spacemonkeygo/spacelog"
 )
 
 const (
@@ -23,9 +22,15 @@ const (
 var (
 	nowHook   = time.Now   // for testing
 	sleepHook = time.Sleep // for testing
-	logger    = spacelog.GetLogger()
+	Logger    func(format string, args ...interface{})
 	Error     = errors.NewClass("fcm")
 )
+
+func log(format string, args ...interface{}) {
+	if Logger != nil {
+		Logger(format, args...)
+	}
+}
 
 type FcmClient interface {
 	Send(ctx context.Context, m HttpMessage) (hr *HttpResponse, err error)
@@ -133,7 +138,7 @@ Loop:
 					currentBackoff = backoff
 				}
 
-				logger.Noticef("RegistrationIds: %v (attempt %d of %d)", toRetryRegIds,
+				log("RegistrationIds: %v (attempt %d of %d)", toRetryRegIds,
 					attempts, c.options.MaxRetryAttempts)
 				attempts += 1
 				// TODO send in context with cancelation
@@ -192,7 +197,7 @@ func (c *Client) processResp(ctx context.Context, registrationIds []string,
 		// Check for canonical ID
 		if result.MessageId != "" {
 			if result.RegistrationId != "" {
-				logger.Debugf("update: %s to %s", regId, result.RegistrationId)
+				log("update: %s to %s", regId, result.RegistrationId)
 				err = c.store.Update(ctx, regId, result.RegistrationId)
 				if err != nil {
 					return nil, err
@@ -204,10 +209,10 @@ func (c *Client) processResp(ctx context.Context, registrationIds []string,
 		if isRetry(result.Error) {
 			toRetry = append(toRetry, regId)
 		} else {
-			logger.Noticef("RegistrationId: %s error: %s", regId, result.Error)
+			log("RegistrationId: %s error: %s", regId, result.Error)
 			failureReasons += fmt.Sprintf("%d: %s\n", i, result.Error)
 			// Probably an unrecoverable error or NotRegistered
-			logger.Debugf("Deleting: %v", regId)
+			log("Deleting: %v", regId)
 			err = c.store.Delete(ctx, regId)
 			if err != nil {
 				return nil, err
@@ -219,13 +224,12 @@ func (c *Client) processResp(ctx context.Context, registrationIds []string,
 }
 
 func (c *Client) send(message *HttpMessage) (*response, error) {
-	logger.Debugf("message: %v", message)
 
 	data, err := json.Marshal(message)
 	if err != nil {
 		return nil, Error.Wrap(err)
 	}
-	logger.Debugf("send json %s", data)
+	log("send json: %s", data)
 
 	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(data))
 	if err != nil {
@@ -233,7 +237,6 @@ func (c *Client) send(message *HttpMessage) (*response, error) {
 	}
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Authorization", fmt.Sprintf("key=%s", c.apiKey))
-	logger.Debugf("request: %v", req)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -259,7 +262,7 @@ func (c *Client) send(message *HttpMessage) (*response, error) {
 	if err != nil {
 		return nil, err
 	}
-	logger.Debugf("response: %v", string(body))
+	log("response: %v", string(body))
 	err = json.Unmarshal(body, &httpResp)
 	if err != nil {
 		return nil, err
